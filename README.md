@@ -54,8 +54,7 @@ Seguindo o template sugerido pelo PDF do desafio:
      consolidadas em uma única lista de pares `{label, value}`.
    - `reviews` — uma entrada por avaliação, com `name`, `date`, `score`
      (contagem das estrelas ★ preenchidas) e `text`.
-   - `reviews_average_score` — média extraída da página (com fallback que
-     calcula a média a partir dos scores das reviews).
+   - `reviews_average_score` — média extraída diretamente do nó `.avg-score`.
    - `url` — a URL acessada.
 4. **Serialização** do hash final em JSON e gravação em `produto.json`.
 
@@ -97,17 +96,8 @@ o elemento carrega a classe adicional `unavailable`. A checagem é feita
 diretamente nessa classe:
 
 ```ruby
-available = !(sku['class'] || '').split.include?('unavailable')
+available = !sku['class'].to_s.split.include?('unavailable')
 ```
 
 Quando indisponível, ambos os preços viram `null` (preço de produto sem
 estoque não faz sentido para o consumidor).
-
-### Seletores defensivos
-
-Para campos como `brand` e `description`, o scraper tenta múltiplos
-seletores em cadeia (`||`), começando por IDs explícitos e caindo para
-classes/seletores estruturais. Para `specification`, há fallback para
-qualquer tabela da página caso não encontre um container nomeado. Já
-`skus` e `reviews` usam seletores diretos (`.variant-btn` e
-`.review-card`) descobertos inspecionando o HTML real da página.
