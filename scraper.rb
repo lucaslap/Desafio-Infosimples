@@ -72,39 +72,25 @@ resposta_final = {}
 # ---------------------------------------------------------------------------
 # 2) title
 # ---------------------------------------------------------------------------
-# O próprio enunciado do desafio cita explicitamente que o título do produto
-# está numa <h1 id="product_title">.
 resposta_final['title'] = squish(doc.css('h1#product_title').text)
 
 # ---------------------------------------------------------------------------
 # 3) brand
 # ---------------------------------------------------------------------------
-# A marca aparece logo abaixo do título. Tentamos vários seletores semânticos
-# comuns; se nenhum bater, ficamos com string vazia (e o usuário pode ajustar
-# o seletor após inspecionar o HTML).
-brand_node = doc.at_css('#product_brand') ||
-             doc.at_css('.product-brand') ||
-             doc.at_css('[itemprop="brand"]')
+brand_node = doc.at_css('.product-brand')
 resposta_final['brand'] = squish(brand_node ? brand_node.text : '')
 
 # ---------------------------------------------------------------------------
 # 4) categories
 # ---------------------------------------------------------------------------
-# As categorias estão no breadcrumb no topo da página, na ordem da mais geral
-# à mais específica. Pegamos cada link/span do breadcrumb.
-breadcrumb_items = doc.css('nav[aria-label="breadcrumbs"] a, ' \
-                           '.breadcrumb-bar nav a')
+breadcrumb_items = doc.css('.breadcrumb-bar nav a')
 categories = breadcrumb_items.map { |n| squish(n.text) }.reject(&:empty?).uniq
 resposta_final['categories'] = categories
 
 # ---------------------------------------------------------------------------
 # 5) description
 # ---------------------------------------------------------------------------
-# A descrição é composta por parágrafos. Se houver vários <p>, juntamos com
-# uma quebra dupla para preservar a separação.
-description_node = doc.at_css('#tab-description') ||
-                   doc.at_css('#product_description') ||
-                   doc.at_css('.product-description')
+description_node = doc.at_css('#tab-description')
 if description_node
   paragraphs = description_node.css('p').map { |p| squish(p.text) }
   paragraphs = [squish(description_node.text)] if paragraphs.empty?
@@ -116,35 +102,14 @@ end
 # ---------------------------------------------------------------------------
 # 6) skus
 # ---------------------------------------------------------------------------
-# Cada SKU é uma variação do produto. As 3 variações esperadas são:
-#   - Standard Configuration (disponível, com preço atual + preço antigo)
-#   - Battle-Ready Configuration (indisponível, sem preços)
-#   - Smuggler's Special (disponível, apenas preço atual)
-skus = []
-sku_nodes = doc.css('.variant-btn')
+skus = doc.css('.variant-btn').map do |sku|
+  available = !sku['class'].to_s.split.include?('unavailable')
 
-sku_nodes.each do |sku|
-  name = squish(sku.at_css('.vname')&.text || '')
-
-  current_node = sku.at_css('.vprice')
-  current_price = current_node ? parse_price(current_node.text) : nil
-
-  old_node = sku.at_css('.vprice-old')
-  old_price = old_node ? parse_price(old_node.text) : nil
-
-  # Disponibilidade: classe "unavailable" diretamente no elemento .variant-btn.
-  available = !(sku['class'] || '').split.include?('unavailable')
-
-  if !available
-    current_price = nil
-    old_price = nil
-  end
-
-  skus << {
-    'name' => name,
-    'current_price' => current_price,
-    'old_price' => old_price,
-    'available' => available,
+  {
+    'name'          => squish(sku.at_css('.vname')&.text),
+    'current_price' => available ? parse_price(sku.at_css('.vprice')&.text) : nil,
+    'old_price'     => available ? parse_price(sku.at_css('.vprice-old')&.text) : nil,
+    'available'     => available,
   }
 end
 
@@ -153,29 +118,18 @@ resposta_final['skus'] = skus
 # ---------------------------------------------------------------------------
 # 7) specification
 # ---------------------------------------------------------------------------
-# As specs aparecem em uma ou mais tabelas (Primary Specs / Secondary Specs).
-# Cada linha tem um par label/value. Combinamos tudo numa única lista.
-specifications = []
-spec_tables = doc.css('#product_specifications table, ' \
-                      '.product-specifications table, ' \
-                      '.specifications table, ' \
-                      '.specs-table')
-
-# Fallback: se não achou tabelas em um container nomeado, tenta qualquer
-# tabela da página (provavelmente são apenas as de specs mesmo).
+spec_tables = doc.css('.specs-table')
 spec_tables = doc.css('table') if spec_tables.empty?
 
-spec_tables.each do |table|
-  table.css('tr').each do |row|
+resposta_final['specification'] = spec_tables.flat_map do |table|
+  table.css('tr').filter_map do |row|
     cells = row.css('th, td')
     next if cells.length < 2
     label = squish(cells[0].text)
-    value = squish(cells[1].text)
     next if label.empty?
-    specifications << { 'label' => label, 'value' => value }
+    { 'label' => label, 'value' => squish(cells[1].text) }
   end
 end
-resposta_final['specification'] = specifications
 
 # ---------------------------------------------------------------------------
 # 8) reviews
@@ -184,10 +138,10 @@ reviews = []
 review_nodes = doc.css('.review-card')
 
 review_nodes.each do |r|
-  name = squish(r.at_css('.reviewer-name')&.text || '')
-  date = squish(r.at_css('.reviewer-date')&.text || '')
-  score = count_stars(r.at_css('.review-stars')&.text || '')
-  text = squish(r.at_css('.review-text, p')&.text || '')
+  name = squish(r.at_css('.reviewer-name')&.text)
+  date = squish(r.at_css('.reviewer-date')&.text)
+  score = count_stars(r.at_css('.review-stars')&.text)
+  text = squish(r.at_css('.review-text, p')&.text)
 
   reviews << {
     'name' => name,
@@ -201,20 +155,7 @@ resposta_final['reviews'] = reviews
 # ---------------------------------------------------------------------------
 # 9) reviews_average_score
 # ---------------------------------------------------------------------------
-# Preferimos extrair a média da própria página (mais fiel ao que o site
-# exibe). Se não houver nó com a média, calculamos a partir dos scores.
-avg_node = doc.at_css('.avg-score, #reviews_average_score, ' \
-                      '.reviews-average-score, [itemprop="ratingValue"]')
-average_score =
-  if avg_node
-    match = avg_node.text.match(/\d+[.,]?\d*/)
-    match ? match[0].tr(',', '.').to_f : nil
-  end
-
-if average_score.nil? && !reviews.empty?
-  total = reviews.sum { |r| r['score'].to_i }
-  average_score = (total.to_f / reviews.length).round(2)
-end
+average_score = doc.at_css('.avg-score')&.text
 
 resposta_final['reviews_average_score'] = average_score
 
