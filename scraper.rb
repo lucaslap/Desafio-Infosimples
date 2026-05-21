@@ -9,14 +9,6 @@
 #   3. Extração dos 9 campos pedidos (title, brand, categories, description,
 #      skus, specification, reviews, reviews_average_score, url);
 #   4. Salva o resultado em produto.json.
-#
-# Como executar:
-#   1. Instale o Ruby (testado com Ruby 3.x).
-#   2. Instale a gem Mechanize:
-#        gem install mechanize
-#   3. Rode:
-#        ruby scraper.rb
-#   4. O arquivo produto.json será gerado no diretório atual.
 # =============================================================================
 
 require 'mechanize'
